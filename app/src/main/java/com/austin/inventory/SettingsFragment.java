@@ -1,77 +1,116 @@
 package com.austin.inventory;
 
-import static androidx.security.crypto.EncryptedSharedPreferences.PrefKeyEncryptionScheme;
-import static androidx.security.crypto.EncryptedSharedPreferences.PrefValueEncryptionScheme;
-
 import android.Manifest;
+import android.app.AlertDialog;
+import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Bundle;
-import android.widget.EditText;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.appcompat.app.AlertDialog;
+import androidx.preference.EditTextPreference;
 import androidx.preference.PreferenceFragmentCompat;
-import androidx.preference.PreferenceManager;
 import androidx.preference.SwitchPreferenceCompat;
-import androidx.security.crypto.EncryptedSharedPreferences;
-import androidx.security.crypto.MasterKey;
 
 import com.google.android.material.snackbar.Snackbar;
 
 public class SettingsFragment extends PreferenceFragmentCompat {
+    DatabaseHelper databaseHelper;
     private ActivityResultLauncher<String> requestPermissionLauncher;
-    private SharedPreferences sharedPreferences;
+    private SharedPreferences preferences;
+    private String currentUserEmail;
 
     @Override
     public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
         setPreferencesFromResource(R.xml.preferences, rootKey);
-        sharedPreferences = PreferenceManager.getDefaultSharedPreferences(getContext());
+        preferences = requireActivity().getSharedPreferences("user_prefs", Context.MODE_PRIVATE);
+        currentUserEmail = preferences.getString("logged_in_user_email", null);
 
-        requestPermissionLauncher = registerForActivityResult(
-                new ActivityResultContracts.RequestPermission(),
-                isGranted -> {
-                    if (isGranted) {
-                        if (!phoneNumberExists()) {
-                            promptForPhoneNumber();
-                        } else {
-                            updateSmsPreference(true);
-                        }
-                    } else {
-                        showSnackbar("SMS permission denied");
-                        resetSmsPreference();
-                    }
-                });
+        databaseHelper = new DatabaseHelper(getContext());
 
         SwitchPreferenceCompat smsPreference = findPreference("notifications");
+        SwitchPreferenceCompat enable2FAPref = findPreference("enable_2fa");
+        SwitchPreferenceCompat notifyInventoryZeroPref = findPreference("notify_inventory_zero");
+
+        requestPermissionLauncher = registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
+            if (isGranted) {
+                updateSmsPreference(true);
+            } else {
+                showSnackbar("SMS permission denied");
+                resetSmsPreference();
+            }
+        });
+
         if (smsPreference != null) {
             smsPreference.setOnPreferenceChangeListener((preference, newValue) -> {
                 if ((Boolean) newValue) {
-                    checkForSmsPermission();
+                    showSmsExplanationDialog();
                 } else {
                     resetSmsPreference();
                 }
                 return true;
             });
         }
+
+        if (enable2FAPref != null && smsPreference != null) {
+            enable2FAPref.setOnPreferenceChangeListener((preference, newValue) -> {
+                boolean is2FAEnabled = (Boolean) newValue;
+
+                if (is2FAEnabled && !smsPreference.isChecked()) {
+                    showSnackbar("2FA cannot be enabled as SMS notifications are disabled.");
+                    return false; // Prevent the preference change
+                } else {
+                    databaseHelper.updateUser2FASetting(currentUserEmail, is2FAEnabled);
+                    return true; // Allow the preference change
+                }
+            });
+        }
+
+        // Other preferences
+        EditTextPreference minimumInventoryPref = findPreference("minimum_inventory");
+        if (minimumInventoryPref != null) {
+            minimumInventoryPref.setOnPreferenceChangeListener((preference, newValue) -> {
+                int minInventory = Integer.parseInt((String) newValue);
+                preferences.edit().putInt("minimum_inventory_value", minInventory).apply();
+                return true;
+            });
+        }
+
+        if (notifyInventoryZeroPref != null && smsPreference != null) {
+            notifyInventoryZeroPref.setOnPreferenceChangeListener((preference, newValue) -> {
+                boolean notifyWhenZero = (Boolean) newValue;
+                if (notifyWhenZero && !smsPreference.isChecked()) {
+                    showSnackbar("Inventory zero notifications require SMS to be enabled.");
+                    return false; // Prevent the preference change
+                } else {
+                    preferences.edit().putBoolean("notify_inventory_zero", notifyWhenZero).apply();
+                    return true; // Allow the preference change
+                }
+            });
+        }
+    }
+
+    private void showSmsExplanationDialog() {
+        new AlertDialog.Builder(getContext())
+                .setTitle("SMS Notifications")
+                .setMessage("Enabling SMS notifications will allow the app to send you alerts via text message, and use two-factor authentication at login." +
+                        "The app will request permission to send SMS.")
+                .setPositiveButton("OK", (dialog, which) -> checkForSmsPermission())
+                .setNegativeButton("Cancel", (dialog, which) -> resetSmsPreference())
+                .show();
     }
 
     /**
-     * Checks preferences to see whether the phone number exists
-     * @return boolean of whether the phone number already exists
-     */
-    private boolean phoneNumberExists() {
-        String phoneNumber = sharedPreferences.getString("user_phone_number", null);
-        return phoneNumber != null && !phoneNumber.isEmpty();
-    }
-
-    /**
-     * Updates the SMS prefence
+     * Updates the SMS preference
+     *
      * @param enabled bool indicating SMS preference
      */
     private void updateSmsPreference(boolean enabled) {
-        sharedPreferences.edit().putBoolean("sms_notifications_enabled", enabled).apply();
+        preferences.edit().putBoolean("sms_notifications_enabled", enabled).apply();
+        String message = enabled ? "SMS notifications enabled" : "SMS notifications disabled";
+        showSnackbar(message);
     }
+
 
     /**
      * Request SMS permission
@@ -81,61 +120,21 @@ public class SettingsFragment extends PreferenceFragmentCompat {
     }
 
     /**
-     * Prompt user for phone number using an alert dialog
-     */
-    private void promptForPhoneNumber() {
-        AlertDialog.Builder builder = new AlertDialog.Builder(getContext());
-        builder.setTitle("Enter Phone Number");
-
-        final EditText input = new EditText(getContext());
-        input.setInputType(android.text.InputType.TYPE_CLASS_PHONE);
-        builder.setView(input);
-
-        builder.setPositiveButton("OK", (dialog, which) -> {
-            String phoneNumber = input.getText().toString();
-            savePhoneNumber(phoneNumber);
-        });
-        builder.setNegativeButton("Cancel", (dialog, which) -> dialog.cancel());
-
-        builder.show();
-    }
-
-    /**
-     * Method used for saving phone number utilizing encrypted preferences -
-     * Implementation found in documentation:
-     * https://developer.android.com/reference/androidx/security/crypto/EncryptedSharedPreferences
-     *
-     * @param phoneNumber phone number to be saved
-     */
-    private void savePhoneNumber(String phoneNumber) {
-        try {
-            MasterKey masterKey = new MasterKey.Builder(getContext())
-                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                    .build();
-
-            SharedPreferences encryptedSharedPreferences = EncryptedSharedPreferences.create(
-                    getContext(),
-                    "encrypted_preferences",
-                    masterKey,
-                    PrefKeyEncryptionScheme.AES256_SIV,
-                    PrefValueEncryptionScheme.AES256_GCM
-            );
-
-            encryptedSharedPreferences.edit().putBoolean("sms_notifications_enabled", true)
-                    .putString("user_phone_number", phoneNumber).apply();
-        } catch (Exception e) {
-            e.printStackTrace();
-            showSnackbar("Error saving phone number");
-        }
-    }
-
-    /**
      * Resets the SMS notification preference in shared preferences -
-     * Called when user sets sms permission to no (If they previously gave the app permission)
+     * Called when user sets SMS permission to no (If they previously gave the app permission)
      */
     private void resetSmsPreference() {
-        SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(getContext());
-        preferences.edit().putBoolean("sms_notifications_enabled", false).apply();
+        updateSmsPreference(false);
+
+        // Automatically turn off 2FA if SMS is turned off
+        if (currentUserEmail != null) {
+            databaseHelper.updateUser2FASetting(currentUserEmail, false);
+            SwitchPreferenceCompat enable2FAPref = findPreference("enable_2fa");
+            if (enable2FAPref != null) {
+                enable2FAPref.setChecked(false);
+                showSnackbar("2FA has been disabled as SMS notifications are turned off");
+            }
+        }
 
         SwitchPreferenceCompat smsPreference = findPreference("notifications");
         if (smsPreference != null) {
@@ -143,11 +142,13 @@ public class SettingsFragment extends PreferenceFragmentCompat {
         }
     }
 
+
     /**
      * Show snackbar notification in app
+     *
      * @param message message to be sent to user
      */
     private void showSnackbar(String message) {
-        Snackbar.make(getView(), message, Snackbar.LENGTH_SHORT).show();
+        Snackbar.make(requireView(), message, Snackbar.LENGTH_SHORT).show();
     }
 }

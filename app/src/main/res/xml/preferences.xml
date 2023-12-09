@@ -1,6 +1,35 @@
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
-    <SwitchPreferenceCompat
-        android:defaultValue="false"
-        android:key="notifications"
-        android:title="Turn on SMS Notifications" />
+
+    <PreferenceCategory android:title="SMS Notifications">
+
+        <SwitchPreferenceCompat
+            android:defaultValue="false"
+            android:key="notifications"
+            android:title="Enable SMS Notifications" />
+
+        <EditTextPreference
+            android:defaultValue="2"
+            android:dialogTitle="Set Minimum Inventory for Alert"
+            android:inputType="number"
+            android:key="minimum_inventory"
+            android:summary="Alert when inventory falls below this number"
+            android:title="Minimum Inventory Alert" />
+
+        <SwitchPreferenceCompat
+            android:defaultValue="false"
+            android:key="notify_inventory_zero"
+            android:title="Notify When Inventory Hits Zero" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="Security Settings">
+
+        <SwitchPreferenceCompat
+            android:defaultValue="false"
+            android:key="enable_2fa"
+            android:summary="Turn on to enhance account security"
+            android:title="Enable Two-Factor Authentication" />
+
+    </PreferenceCategory>
+
 </PreferenceScreen>

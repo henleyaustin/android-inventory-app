@@ -1,21 +1,19 @@
 package com.austin.inventory;
 
 
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.navigation.NavController;
-import androidx.navigation.Navigation;
-import androidx.navigation.fragment.NavHostFragment;
-import androidx.navigation.ui.AppBarConfiguration;
-import androidx.navigation.ui.NavigationUI;
+import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
-import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 
+import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
+import androidx.navigation.NavController;
+import androidx.navigation.fragment.NavHostFragment;
+import androidx.navigation.ui.NavigationUI;
 
 public class MainActivity extends AppCompatActivity {
-
 
     private NavController navController;
 
@@ -27,8 +25,7 @@ public class MainActivity extends AppCompatActivity {
         Toolbar myToolbar = (Toolbar) findViewById(R.id.inventory_toolbar);
         setSupportActionBar(myToolbar);
 
-        NavHostFragment navHostFragment = (NavHostFragment) getSupportFragmentManager()
-                .findFragmentById(R.id.nav_host_fragment);
+        NavHostFragment navHostFragment = (NavHostFragment) getSupportFragmentManager().findFragmentById(R.id.nav_host_fragment);
 
         if (navHostFragment != null) {
             navController = navHostFragment.getNavController();
@@ -42,18 +39,29 @@ public class MainActivity extends AppCompatActivity {
         return true;
     }
 
-
     @Override
     public boolean onSupportNavigateUp() {
         return navController != null && navController.navigateUp() || super.onSupportNavigateUp();
     }
 
+    @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         int id = item.getItemId();
 
         if (id == R.id.action_settings) {
-            navigateToSettingsFragment();
+            if (!(navController.getCurrentDestination().getId() == R.id.settings)) {
+                navigateToSettingsFragment();
+            }
             return true;
+        }
+
+        if (id == R.id.action_logout) {
+            clearLoggedInUser();
+
+            Intent intent = new Intent(MainActivity.this, LoginActivity.class);
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(intent);
+            finish();
         }
 
         return super.onOptionsItemSelected(item);
@@ -63,6 +71,13 @@ public class MainActivity extends AppCompatActivity {
         if (navController != null) {
             navController.navigate(R.id.action_inventory_to_settings);
         }
+    }
+
+    private void clearLoggedInUser() {
+        SharedPreferences preferences = getSharedPreferences("user_prefs", MODE_PRIVATE);
+        SharedPreferences.Editor editor = preferences.edit();
+        editor.remove("logged_in_user_email");
+        editor.apply();
     }
 
 }

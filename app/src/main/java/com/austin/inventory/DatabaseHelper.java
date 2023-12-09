@@ -5,6 +5,8 @@ import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
+import android.util.Log;
+
 import androidx.annotation.Nullable;
 
 import java.util.ArrayList;
@@ -13,20 +15,21 @@ import java.util.List;
 public class DatabaseHelper extends SQLiteOpenHelper {
 
     private static final String DATABASE_NAME = "InventoryApp.db";
-    private static final int DATABASE_VERSION = 1;
+    private static final int DATABASE_VERSION = 4;
 
     // Users table
     private static final String TABLE_USERS = "allusers";
     private static final String COLUMN_EMAIL = "email";
     private static final String COLUMN_PASSWORD = "password";
     private static final String COLUMN_PHONE = "phone";
-
+    private static final String COLUMN_2FA_ENABLED = "two_fa_enabled";
 
     // Inventory table
     private static final String TABLE_INVENTORY = "inventory";
     private static final String COLUMN_ID = "id";
     private static final String COLUMN_NAME = "name";
     private static final String COLUMN_QUANTITY = "quantity";
+    private static final String COLUMN_USER_EMAIL = "user_email";
 
     public DatabaseHelper(@Nullable Context context) {
         super(context, DATABASE_NAME, null, DATABASE_VERSION);
@@ -34,15 +37,11 @@ public class DatabaseHelper extends SQLiteOpenHelper {
 
     @Override
     public void onCreate(SQLiteDatabase db) {
-        db.execSQL("CREATE TABLE " + TABLE_USERS + "(" +
-                COLUMN_EMAIL + " TEXT PRIMARY KEY, " +
-                COLUMN_PASSWORD + " TEXT, " +
-                COLUMN_PHONE + " TEXT)");
+        // Create Users Table
+        db.execSQL("CREATE TABLE " + TABLE_USERS + "(" + COLUMN_EMAIL + " TEXT PRIMARY KEY, " + COLUMN_PASSWORD + " TEXT, " + COLUMN_PHONE + " TEXT, " + COLUMN_2FA_ENABLED + " INTEGER DEFAULT 0)"); // 0 for false, 1 for true
 
-        db.execSQL("CREATE TABLE " + TABLE_INVENTORY + "(" +
-                COLUMN_ID + " INTEGER PRIMARY KEY AUTOINCREMENT, " +
-                COLUMN_NAME + " TEXT, " +
-                COLUMN_QUANTITY + " INTEGER)");
+        // Create Inventory Table with a foreign key reference to Users Table
+        db.execSQL("CREATE TABLE " + TABLE_INVENTORY + "(" + COLUMN_ID + " INTEGER PRIMARY KEY AUTOINCREMENT, " + COLUMN_NAME + " TEXT, " + COLUMN_QUANTITY + " INTEGER, " + COLUMN_USER_EMAIL + " TEXT, " + "FOREIGN KEY(" + COLUMN_USER_EMAIL + ") REFERENCES " + TABLE_USERS + "(" + COLUMN_EMAIL + "))");
     }
 
     @Override
@@ -85,6 +84,50 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         return valid;
     }
 
+    public String getUserPhoneNumber(String email) {
+        SQLiteDatabase db = this.getReadableDatabase();
+        String phoneNumber = null;
+        Cursor cursor = db.query(TABLE_USERS, new String[]{COLUMN_PHONE}, COLUMN_EMAIL + " = ?", new String[]{email}, null, null, null);
+
+        if (cursor.moveToFirst()) {
+            int phoneIndex = cursor.getColumnIndex(COLUMN_PHONE);
+            if (phoneIndex != -1) {
+                phoneNumber = cursor.getString(phoneIndex);
+            }
+        }
+
+        cursor.close();
+        db.close();
+        return phoneNumber;
+    }
+
+    public void updateUser2FASetting(String email, boolean is2FAEnabled) {
+        SQLiteDatabase db = this.getWritableDatabase();
+        ContentValues contentValues = new ContentValues();
+        contentValues.put(COLUMN_2FA_ENABLED, is2FAEnabled ? 1 : 0); // Convert boolean to integer
+        int numRowsUpdated = db.update(TABLE_USERS, contentValues, COLUMN_EMAIL + " = ?", new String[]{email});
+        Log.d("DatabaseHelper", "Number of rows updated: " + numRowsUpdated); // Log to check if the update is successful
+        db.close();
+    }
+
+
+    public boolean is2FAEnabled(String email) {
+        SQLiteDatabase db = this.getReadableDatabase();
+        Cursor cursor = db.query(TABLE_USERS, new String[]{COLUMN_2FA_ENABLED}, COLUMN_EMAIL + " = ?", new String[]{email}, null, null, null);
+        boolean isEnabled = false;
+        if (cursor.moveToFirst()) {
+            int columnIndex = cursor.getColumnIndex(COLUMN_2FA_ENABLED);
+            if (columnIndex != -1) {
+                isEnabled = cursor.getInt(columnIndex) == 1;
+            }
+        }
+
+        cursor.close();
+        db.close();
+        return isEnabled;
+    }
+
+
     private String hashPassword(String password) {
         // Implement password hashing here
         return password; // Replace with actual hashed password
@@ -92,20 +135,21 @@ public class DatabaseHelper extends SQLiteOpenHelper {
 
     // Inventory-related operations
 
-    public boolean insertInventoryItem(String name, int quantity) {
+    public boolean insertInventoryItem(String name, int quantity, String userEmail) {
         SQLiteDatabase db = this.getWritableDatabase();
         ContentValues contentValues = new ContentValues();
         contentValues.put(COLUMN_NAME, name);
         contentValues.put(COLUMN_QUANTITY, quantity);
+        contentValues.put(COLUMN_USER_EMAIL, userEmail); // Add user email to ContentValues
         long result = db.insert(TABLE_INVENTORY, null, contentValues);
         db.close();
         return result != -1;
     }
 
-    public List<InventoryItem> getAllInventoryItems() {
+    public List<InventoryItem> getInventoryItemsForUser(String userEmail) {
         List<InventoryItem> itemList = new ArrayList<>();
         SQLiteDatabase db = this.getReadableDatabase();
-        Cursor cursor = db.rawQuery("SELECT * FROM " + TABLE_INVENTORY, null);
+        Cursor cursor = db.rawQuery("SELECT * FROM " + TABLE_INVENTORY + " WHERE " + COLUMN_USER_EMAIL + " = ?", new String[]{userEmail});
 
         // Getting column indexes
         int idIndex = cursor.getColumnIndex(COLUMN_ID);
@@ -148,30 +192,15 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         return deleteStatus > 0;
     }
 
-    public boolean incrementItemQuantity(int id) {
+    public void incrementItemQuantity(int id) {
         SQLiteDatabase db = this.getWritableDatabase();
         db.execSQL("UPDATE " + TABLE_INVENTORY + " SET " + COLUMN_QUANTITY + " = " + COLUMN_QUANTITY + " + 1 WHERE " + COLUMN_ID + " = ?", new String[]{String.valueOf(id)});
         db.close();
-        return true;
     }
 
-    public boolean decrementItemQuantity(int id) {
+    public void decrementItemQuantity(int id) {
         SQLiteDatabase db = this.getWritableDatabase();
         db.execSQL("UPDATE " + TABLE_INVENTORY + " SET " + COLUMN_QUANTITY + " = " + COLUMN_QUANTITY + " - 1 WHERE " + COLUMN_ID + " = ? AND " + COLUMN_QUANTITY + " > 0", new String[]{String.valueOf(id)});
         db.close();
-        return true;
-    }
-
-
-    public int getNextItemId() {
-        SQLiteDatabase db = this.getReadableDatabase();
-        Cursor cursor = db.rawQuery("SELECT MAX(" + COLUMN_ID + ") FROM " + TABLE_INVENTORY, null);
-        int nextId = 1; // Default to 1 if no items are present
-        if (cursor.moveToFirst()) {
-            nextId = cursor.getInt(0) + 1; // Add 1 to the highest ID
-        }
-        cursor.close();
-        db.close();
-        return nextId;
     }
 }
