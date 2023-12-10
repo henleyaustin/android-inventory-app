@@ -1,3 +1,12 @@
+/**
+ * SettingsFragment.java
+ *
+ * This class is responsible for the the settings and preferences functionality
+ *
+ * Author: Austin Henley
+ * Created on: 12/5/2023
+ */
+
 package com.austin.inventory;
 
 import android.Manifest;
@@ -58,15 +67,14 @@ public class SettingsFragment extends PreferenceFragmentCompat {
 
                 if (is2FAEnabled && !smsPreference.isChecked()) {
                     showSnackbar("2FA cannot be enabled as SMS notifications are disabled.");
-                    return false; // Prevent the preference change
+                    return false;
                 } else {
                     databaseHelper.updateUser2FASetting(currentUserEmail, is2FAEnabled);
-                    return true; // Allow the preference change
+                    return true;
                 }
             });
         }
 
-        // Other preferences
         EditTextPreference minimumInventoryPref = findPreference("minimum_inventory");
         if (minimumInventoryPref != null) {
             minimumInventoryPref.setOnPreferenceChangeListener((preference, newValue) -> {
@@ -81,15 +89,18 @@ public class SettingsFragment extends PreferenceFragmentCompat {
                 boolean notifyWhenZero = (Boolean) newValue;
                 if (notifyWhenZero && !smsPreference.isChecked()) {
                     showSnackbar("Inventory zero notifications require SMS to be enabled.");
-                    return false; // Prevent the preference change
+                    return false;
                 } else {
                     preferences.edit().putBoolean("notify_inventory_zero", notifyWhenZero).apply();
-                    return true; // Allow the preference change
+                    return true;
                 }
             });
         }
     }
 
+    /**
+     * Show SMS preference explanation
+     */
     private void showSmsExplanationDialog() {
         new AlertDialog.Builder(getContext())
                 .setTitle("SMS Notifications")

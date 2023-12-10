@@ -1,5 +1,21 @@
+/**
+ * InventoryFragment.java
+ *
+ * This class is responsible for the inventory fragment containing all inventory items in a recycler view
+ *
+ * Author: Austin Henley
+ * Created on: 11/28/2023
+ *
+ * Utilizes executor service for Asynchronous tasks
+ * Documentation: https://developer.android.com/reference/java/util/concurrent/ExecutorService
+ *
+ * Utilizes smsManager for sending SMS - Update to Twilio in future
+ * Documentation: https://developer.android.com/reference/android/telephony/SmsManager
+ */
+
 package com.austin.inventory;
 
+import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -30,9 +46,9 @@ import com.austin.inventory.databinding.ItemDataBinding;
 import com.google.android.material.snackbar.Snackbar;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -55,31 +71,27 @@ public class InventoryFragment extends Fragment {
         // Retrieve the email of the currently logged-in user
         currentUserEmail = preferences.getString("logged_in_user_email", null);
 
+        // Set title in navbar
         requireActivity().setTitle(getString(R.string.inventory_title));
 
-        // Setup RecyclerView
         setupRecyclerView();
 
-        // Refresh the item list
         refreshItemList();
 
         return binding.getRoot();
     }
 
-    /** @noinspection deprecation*/
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         executorService = Executors.newSingleThreadExecutor();
         handler = new Handler(Looper.getMainLooper());
         setHasOptionsMenu(true);
-        preferences = requireActivity().getSharedPreferences("user_prefs", Context.MODE_PRIVATE); // Initialize here
+        preferences = requireActivity().getSharedPreferences("user_prefs", Context.MODE_PRIVATE);
     }
 
-    /** @noinspection deprecation*/
     @Override
-    public void onCreateOptionsMenu(Menu menu, MenuInflater inflater) {
-        // Inflate the sort menu
+    public void onCreateOptionsMenu(@NonNull Menu menu, MenuInflater inflater) {
         inflater.inflate(R.menu.menu_sort, menu);
         super.onCreateOptionsMenu(menu, inflater);
     }
@@ -89,7 +101,6 @@ public class InventoryFragment extends Fragment {
         int id = item.getItemId();
 
         if (id == R.id.action_sort) {
-            // Handle sort option
             showSortOptionsDialog();
             return true;
         }
@@ -97,6 +108,10 @@ public class InventoryFragment extends Fragment {
         return super.onOptionsItemSelected(item);
     }
 
+    /**
+     * Set up recycler view and add divider between items
+     * Handles fab button clicks as well
+     */
     private void setupRecyclerView() {
         binding.itemsList.setLayoutManager(new LinearLayoutManager(getContext()));
         adapter = new InventoryItemAdapter(new ArrayList<>());
@@ -129,15 +144,17 @@ public class InventoryFragment extends Fragment {
                 List<InventoryItem> items = databaseHelper.getInventoryItemsForUser(currentUserEmail);
                 handler.post(() -> {
                     adapter.updateItems(items);
-                    // Update visibility based on list size
+                    // Display empty message if items is empty
                     binding.emptyMessage.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
                 });
             });
         }
     }
 
-
-
+    /**
+     * Check if SMS is enabled and if item is at the minimum - send SMS if true
+     * @param item item being checked
+     */
     private void checkAndSendSmsNotification(InventoryItem item) {
         boolean isSmsEnabled = preferences.getBoolean("sms_notifications_enabled", false);
         int minInventoryValue = preferences.getInt("minimum_inventory_value", 2);
@@ -148,13 +165,18 @@ public class InventoryFragment extends Fragment {
             executorService.execute(() -> {
                 String phoneNumber = databaseHelper.getUserPhoneNumber(currentUserEmail);
                 String message = item.getQuantity() == 0 ?
-                        "Out of inventory for " + item.getName() :
-                        "Low inventory alert: " + item.getName() + " is down to " + minInventoryValue;
+                        "Streamline Inventory: Out of inventory for " + item.getName() :
+                        "Streamline Inventory: Low inventory alert - " + item.getName() + " is down to " + minInventoryValue;
                 sendSmsNotification(phoneNumber, message);
             });
         }
     }
 
+    /**
+     * Send SMS notification using smsManager
+     * @param phoneNumber phone number SMS is being sent to
+     * @param message message for sSMS
+     */
     private void sendSmsNotification(String phoneNumber, String message) {
         try {
             SmsManager smsManager = SmsManager.getDefault();
@@ -165,7 +187,9 @@ public class InventoryFragment extends Fragment {
         }
     }
 
-
+    /**
+     * Adapter for inventory items - used by recycler view
+     */
     private class InventoryItemAdapter extends RecyclerView.Adapter<InventoryItemAdapter.ItemHolder> {
 
         private final List<InventoryItem> mItems;
@@ -193,6 +217,7 @@ public class InventoryFragment extends Fragment {
             return mItems.size();
         }
 
+        @SuppressLint("NotifyDataSetChanged")
         void updateItems(List<InventoryItem> newItems) {
             mItems.clear();
             mItems.addAll(newItems);
@@ -215,7 +240,12 @@ public class InventoryFragment extends Fragment {
                 setupListeners(item);
             }
 
+            /**
+             * Setup listeners for clicks on each item
+             * @param item being clicked on
+             */
             private void setupListeners(InventoryItem item) {
+                // Delete button - Shows dialog if user selects
                 binding.deleteButton.setOnClickListener(v -> new AlertDialog.Builder(requireContext())
                         .setTitle("Delete Item")
                         .setMessage("This will delete this item from inventory completely. Are you sure?")
@@ -233,13 +263,16 @@ public class InventoryFragment extends Fragment {
                         .show());
 
 
+                // Plus button - Add 1 to current item
                 binding.incrementButton.setOnClickListener(v -> {
                     databaseHelper.incrementItemQuantity(item.getId());
                     item.setQuantity(item.getQuantity() + 1);
                     binding.itemQuantity.setText(String.valueOf(item.getQuantity()));
                 });
 
+                // Minus button - Subtract 1 from current item
                 binding.reduceButton.setOnClickListener(v -> {
+                    // Does not allow going below 0
                     if (item.getQuantity() > 0) {
                         databaseHelper.decrementItemQuantity(item.getId());
                         item.setQuantity(item.getQuantity() - 1);
@@ -248,11 +281,16 @@ public class InventoryFragment extends Fragment {
                     checkAndSendSmsNotification(item);
                 });
 
+                // Edit button - Shows dialog for editing item
                 binding.editButton.setOnClickListener(v -> showEditItemDialog(item));
             }
         }
     }
 
+    /**
+     * Show dialog_edit_item layout and sets actions for buttons
+     * @param item item being edited
+     */
     private void showEditItemDialog(InventoryItem item) {
         DialogEditItemBinding dialogBinding = DialogEditItemBinding.inflate(LayoutInflater.from(getContext()));
 
@@ -268,17 +306,22 @@ public class InventoryFragment extends Fragment {
         dialogBinding.buttonUpdate.setOnClickListener(v -> handleUpdateButtonClick(item, dialogBinding, dialog));
         dialogBinding.buttonCancel.setOnClickListener(v -> dialog.dismiss());
 
-        // Show the dialog first
         dialog.show();
 
-        // Then set the maximum width of the dialog
+        // Set max width of dialog - Important for larger devices
         WindowManager.LayoutParams layoutParams = new WindowManager.LayoutParams();
-        layoutParams.copyFrom(dialog.getWindow().getAttributes());
-        int dialogMaxWidth = getResources().getDimensionPixelSize(R.dimen.dialog_max_width); // Define this value in your dimens.xml
+        layoutParams.copyFrom(Objects.requireNonNull(dialog.getWindow()).getAttributes());
+        int dialogMaxWidth = getResources().getDimensionPixelSize(R.dimen.dialog_max_width);
         layoutParams.width = Math.min(layoutParams.width, dialogMaxWidth);
         dialog.getWindow().setAttributes(layoutParams);
     }
 
+    /**
+     * Handles the click event of the update button in the edit item dialog
+     * @param item item being updated
+     * @param dialogBinding the binding for the dialog - gives access to the input fields
+     * @param dialog the instance of AlertDialog - used to dismiss dialog
+     */
     private void handleUpdateButtonClick(InventoryItem item, DialogEditItemBinding dialogBinding, AlertDialog dialog) {
         String newName = dialogBinding.editItemName.getText().toString();
         String quantityStr = dialogBinding.editItemQuantity.getText().toString();
@@ -332,6 +375,9 @@ public class InventoryFragment extends Fragment {
         dialog.show();
     }
 
+    /**
+     * Show sort options
+     */
     private void showSortOptionsDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(getContext());
         builder.setTitle("Sort by")
@@ -348,29 +394,25 @@ public class InventoryFragment extends Fragment {
         builder.show();
     }
 
-    private void sortInventoryByQuantity() {
-        // Sort the list by quantity in ascending order
-        Collections.sort(adapter.mItems, new Comparator<InventoryItem>() {
-            @Override
-            public int compare(InventoryItem o1, InventoryItem o2) {
-                return Integer.compare(o1.getQuantity(), o2.getQuantity());
-            }
-        });
 
-        // Notify the adapter about the data change
+    /**
+     * Sort the list by quantity in ascending order
+     */
+    @SuppressLint("NotifyDataSetChanged")
+    private void sortInventoryByQuantity() {
+        adapter.mItems.sort(Comparator.comparingInt(InventoryItem::getQuantity));
+
         adapter.notifyDataSetChanged();
     }
 
-    private void sortInventoryByName() {
-        // Sort the list by name in alphabetical order
-        Collections.sort(adapter.mItems, new Comparator<InventoryItem>() {
-            @Override
-            public int compare(InventoryItem o1, InventoryItem o2) {
-                return o1.getName().compareToIgnoreCase(o2.getName());
-            }
-        });
 
-        // Notify the adapter about the data change
+    /**
+     * Sort the list by name in alphabetical order
+     */
+    @SuppressLint("NotifyDataSetChanged")
+    private void sortInventoryByName() {
+        adapter.mItems.sort((o1, o2) -> o1.getName().compareToIgnoreCase(o2.getName()));
+
         adapter.notifyDataSetChanged();
     }
 

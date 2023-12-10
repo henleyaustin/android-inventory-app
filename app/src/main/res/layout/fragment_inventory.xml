@@ -27,7 +27,7 @@
         android:layout_marginBottom="16dp"
         android:backgroundTint="#05619F"
         android:clickable="true"
-        android:contentDescription="@string/fab_info"
+        android:contentDescription="@string/fab_add_item_tooltip"
         android:text="@string/add_item"
         android:textColor="#FFFFFF"
         app:icon="@drawable/ic_white_add"

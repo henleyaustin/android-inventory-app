@@ -1,3 +1,16 @@
+/**
+ * SettingsFragment.java
+ *
+ * This class is responsible for the main activity of the app. Main activity acts as container for
+ * inventory fragment and settings fragment
+ *
+ * Author: Austin Henley
+ * Created on: 11/27/2023
+ *
+ * Uses toolbar for navbar functionality
+ * Documentation used: https://developer.android.com/reference/android/widget/Toolbar
+ */
+
 package com.austin.inventory;
 
 
@@ -13,6 +26,8 @@ import androidx.navigation.NavController;
 import androidx.navigation.fragment.NavHostFragment;
 import androidx.navigation.ui.NavigationUI;
 
+import java.util.Objects;
+
 public class MainActivity extends AppCompatActivity {
 
     private NavController navController;
@@ -22,7 +37,8 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        Toolbar myToolbar = (Toolbar) findViewById(R.id.inventory_toolbar);
+        // Set up toolbar
+        Toolbar myToolbar = findViewById(R.id.inventory_toolbar);
         setSupportActionBar(myToolbar);
 
         NavHostFragment navHostFragment = (NavHostFragment) getSupportFragmentManager().findFragmentById(R.id.nav_host_fragment);
@@ -49,7 +65,7 @@ public class MainActivity extends AppCompatActivity {
         int id = item.getItemId();
 
         if (id == R.id.action_settings) {
-            if (!(navController.getCurrentDestination().getId() == R.id.settings)) {
+            if (!(Objects.requireNonNull(navController.getCurrentDestination()).getId() == R.id.settings)) {
                 navigateToSettingsFragment();
             }
             return true;
@@ -67,12 +83,18 @@ public class MainActivity extends AppCompatActivity {
         return super.onOptionsItemSelected(item);
     }
 
+    /**
+     * Navigate to settings fragment from inventory fragment
+     */
     private void navigateToSettingsFragment() {
         if (navController != null) {
             navController.navigate(R.id.action_inventory_to_settings);
         }
     }
 
+    /**
+     * Clear current user email from preferences
+     */
     private void clearLoggedInUser() {
         SharedPreferences preferences = getSharedPreferences("user_prefs", MODE_PRIVATE);
         SharedPreferences.Editor editor = preferences.edit();
